@@ -118,12 +118,32 @@ Non-negotiable — this is what makes the contracts credible as a dependency:
 `v0.1` in progress. See [SPEC.md](SPEC.md) for the roadmap.
 
 - [x] `common`
-- [ ] `escrow`
-- [ ] `stream`
-- [ ] `vesting`
-- [ ] `recurring`
-- [ ] `batch_payout`
+- [x] `escrow`
+- [x] `stream`
+- [x] `vesting`
+- [x] `recurring`
+- [x] `batch_payout`
+- [ ] Cross-contract integration tests in `tests/`
+- [ ] Coverage measured against the ≥90% gate
 - [ ] Testnet deployment, addresses recorded in `DEPLOYMENTS.md`
+- [ ] `MAX_RECIPIENTS` re-measured against testnet (see below)
+
+### Known gaps
+
+**`batch_payout`'s recipient cap is measured, but only locally.** The ramp in
+`report_batch_ceiling` found 40 recipients execute and 45 exceed the budget
+under soroban-sdk 27.0.6, so `MAX_RECIPIENTS` is 40. The local environment does
+not model transaction size limits, and its `mock_all_auths` builds one
+authorization entry per transfer where a real submission signs a single tree —
+so the on-chain figure may differ in either direction. Re-run against testnet
+before `v0.2`.
+
+**Every contract is one position per deployed instance.** One escrow, one
+stream, one grant, one subscription per contract. That follows the entry-point
+signatures in [SPEC.md](SPEC.md), which take no position id. It is worth
+revisiting: an id-keyed design would let a single deployment hold many
+positions, which matters for the payroll and dashboard screens the app is
+meant to have.
 
 ## Contributing
 

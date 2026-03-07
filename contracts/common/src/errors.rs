@@ -109,6 +109,9 @@ pub enum Error {
     BatchEmpty = 100,
     /// The recipient list exceeds the documented maximum.
     BatchTooLarge = 101,
-    /// The same address appears more than once in the recipient list.
-    BatchDuplicateRecipient = 102,
+    // 102 was `BatchDuplicateRecipient`, removed before any release.
+    // Detecting duplicates on-chain costs a quadratic scan of the recipient
+    // list, and paying one address twice in a batch is legitimate anyway, so
+    // duplicate detection belongs in the client's CSV import. The number stays
+    // burned rather than reused.
 }
