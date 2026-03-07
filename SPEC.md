@@ -2,7 +2,9 @@
 
 **Payment rails for Stellar.** Audited Soroban contracts, a typed client SDK, and a reference application — so that teams building payroll, subscriptions, escrow, or streaming on Stellar stop rewriting the same contracts from scratch.
 
-> **This document is a build specification.** It describes an entire GitHub organization across five repositories. It is written to be handed to Claude Code repo by repo. Do not attempt to build all five at once. Start with `contracts`, finish it, then move down the list. Each repo section below is self-contained enough to act as that repo's own README once the org is live.
+> **This document is a build specification.** It describes a GitHub organization across two repositories. Build one repository at a time and finish it before starting the next.
+
+> **Revision note (2026-09-07).** This spec originally described *five* repositories — `contracts`, `sdk`, `app`, `docs` and `.github`. It has been consolidated to **two** at the maintainer's direction: `sdk`, `app` and `docs` are now one `frontend` repo, and `.github`'s templates are copied into each repo instead of inherited. Two contradictions in the original were also fixed: it named a `token_utils` crate that appeared nowhere else (the shared crate is `common`), and it gave two different build orders. Sections describing already-built code have been updated to describe what was actually built.
 
 ---
 
@@ -10,14 +12,10 @@
 
 - [Why this exists](#why-this-exists)
 - [Organization structure](#organization-structure)
-- [Dependency graph](#dependency-graph)
-- [Build order and prompting strategy](#build-order-and-prompting-strategy)
+- [Build order](#build-order)
 - [Repo 1 — `contracts`](#repo-1--contracts)
-- [Repo 2 — `sdk`](#repo-2--sdk)
-- [Repo 3 — `app`](#repo-3--app)
-- [Repo 4 — `docs`](#repo-4--docs)
-- [Repo 5 — `.github`](#repo-5--github)
-- [Conventions that apply to every repo](#conventions-that-apply-to-every-repo)
+- [Repo 2 — `frontend`](#repo-2--frontend)
+- [Conventions that apply to both repos](#conventions-that-apply-to-both-repos)
 - [Security posture](#security-posture)
 - [Roadmap](#roadmap)
 - [Verify before you build](#verify-before-you-build)
@@ -45,72 +43,57 @@ GitHub organization: **`sororail`**
 | Repo | Language | Purpose | Depends on |
 |---|---|---|---|
 | `contracts` | Rust / Soroban | The payment contracts. The core deliverable. | — |
-| `sdk` | TypeScript | Typed client for the contracts. Framework-agnostic. | `contracts` |
-| `app` | TypeScript / Next.js | Reference fullstack application. | `sdk` |
-| `docs` | MDX / Astro Starlight | Documentation site. | `contracts`, `sdk` |
-| `.github` | Markdown / YAML | Org profile, shared templates, shared workflows. | — |
+| `frontend` | TypeScript | The SDK, the reference application, and the docs site. | `contracts` |
 
-Each repo is separately claimable on Drips and separately listable on GrantFox. Each carries its own `FUNDING.json`, its own issue tracker, and its own release cadence.
+```
+      contracts  (Rust, Soroban)
+          │
+          │  publishes: WASM + contract specs to GitHub Releases
+          ▼
+      frontend  (TypeScript)
+      ├── packages/sdk    → @sororail/sdk on npm
+      ├── apps/web        → Next.js reference application
+      └── apps/docs       → Astro Starlight documentation site
+```
 
-### Why separate repos rather than a monorepo
+Each repo is separately claimable on Drips and carries its own `FUNDING.json`. Suggested split for `frontend`: 70% maintainers, 30% upstream to `contracts`.
 
-- Drips treats a GitHub repository as the fundable unit. Five repos means five projects in the dependency tree, and `sdk` can list `contracts` as a dependency so a share of anything the SDK earns flows upstream automatically.
-- Contributors self-select by stack. A Rust engineer subscribes to `contracts` and is never notified about a CSS change.
-- Release cadences genuinely differ. Contracts should move slowly and deliberately; the app can move daily.
-- The blast radius of a bad merge is contained.
+### Why two repos rather than one or five
 
-The cost is cross-repo coordination, handled by publishing the SDK to npm and the contract WASM to GitHub Releases rather than by path references.
+The split that earns its keep is **Rust from TypeScript**. The toolchains share nothing, the release cadences genuinely differ — contracts should move slowly and deliberately, the app can move daily — and a Rust engineer should not be notified about a CSS change.
+
+Splitting further was reconsidered and rejected. The SDK, the app and the docs site share a language, a package manager and a deploy story, and the docs are required to extract every code sample from a compiling example in the SDK. Keeping them in one repo with a workspace removes a cross-repo coupling that would otherwise need a published package to cross.
+
+The cost is that `frontend` needs an internal workspace layout with real discipline about what depends on what.
 
 ---
 
-## Dependency graph
+## Build order
 
-```
-                    contracts  (Rust, Soroban)
-                        │
-                        │  publishes: WASM + contract specs
-                        │             to GitHub Releases
-                        ▼
-                      sdk  (TypeScript)
-                        │
-                        │  publishes: @sororail/sdk to npm
-                        │
-            ┌───────────┴───────────┐
-            ▼                       ▼
-          app                     docs
-     (Next.js reference)     (Starlight site)
-```
+1. **`contracts`** — the bulk of the work. Nothing downstream can be correct until these are. ✅ **Built.**
+2. **`frontend`** — consumes the published contract specs and WASM.
 
-Each downstream repo declares its upstream in `FUNDING.json` splits. Suggested split for `sdk`: 70% maintainers, 30% to `contracts`. For `app`: 60% maintainers, 40% to `sdk`.
+Within `contracts`, build one contract at a time, complete with tests, before starting the next: `common`, then `escrow`, `stream`, `vesting`, `recurring`, `batch_payout`.
 
----
+Within `frontend`, build the SDK first, then the app, then the docs — the docs are written last, when the API has stopped moving.
 
-## Build order and prompting strategy
-
-Build strictly in this order. Do not begin a repo until the one above it has a green CI run and a tagged release.
-
-1. **`.github`** — half a day. Establishes templates and conventions everything else inherits.
-2. **`contracts`** — the bulk of the work. Nothing downstream can be correct until these are.
-3. **`sdk`** — generated in part from the contract specs produced in step 2.
-4. **`app`** — consumes the published SDK.
-5. **`docs`** — written last, when the API has stopped moving.
-
-**When prompting Claude Code:** open a separate session per repo, in that repo's own directory. Paste only that repo's section from this document plus the [Conventions](#conventions-that-apply-to-every-repo) and [Verify before you build](#verify-before-you-build) sections. Feeding the whole document produces shallow work across five repos instead of one finished repo.
-
-Within `contracts`, prompt one contract at a time — `token_utils`, then `escrow`, then `stream`, then `vesting`, then `recurring`, then `batch_payout`. Each must be complete with tests before starting the next.
+**When prompting Claude Code:** open a separate session per repo, in that repo's own directory. Paste only that repo's section plus [Conventions](#conventions-that-apply-to-both-repos) and [Verify before you build](#verify-before-you-build). Feeding the whole document produces shallow work across both repos instead of one finished repo.
 
 ---
 
 ## Repo 1 — `contracts`
 
 > Composable Soroban payment contracts. Rust, `no_std`, audited-in-intent.
+>
+> **Status: built.** 156 tests passing; fmt, clippy `-D warnings` and the wasm build green. Not yet deployed, not yet audited. See the repo's own README for the current gap list.
 
 ### Stack
 
-- Rust, edition 2021
-- `soroban-sdk` (see [Verify before you build](#verify-before-you-build) for version)
-- `stellar` CLI for build, deploy, and invoke
-- `cargo-nextest` for the test runner
+- Rust, edition 2021, toolchain pinned in `rust-toolchain.toml`
+- `soroban-sdk` **27.0.6** — the latest *stable*. Note 28.0.0-rc.1 is published to crates.io; it is a prerelease and must not be pinned.
+- `stellar` CLI 27.1.0 for build, deploy and invoke
+- Target **`wasm32v1-none`**, not `wasm32-unknown-unknown` — soroban-sdk ≥22 no longer targets the latter
+- `cargo-nextest` as the CI test runner
 - Workspace layout: one crate per contract, plus one shared crate
 - Crates published to crates.io as `sororail-common`, `sororail-escrow`, `sororail-stream`, `sororail-vesting`, `sororail-recurring`, `sororail-batch-payout`. Reserve all six names early.
 
@@ -120,7 +103,7 @@ Within `contracts`, prompt one contract at a time — `token_utils`, then `escro
 contracts/
 ├── Cargo.toml                 # workspace root
 ├── rust-toolchain.toml        # pin the toolchain
-├── Makefile                   # build / test / fmt / lint / optimize
+├── Makefile                   # build / test / fmt / lint / optimize / specs
 ├── FUNDING.json
 ├── contracts/
 │   ├── common/                # shared types, errors, events, guards
@@ -133,21 +116,22 @@ contracts/
 └── .github/workflows/ci.yml
 ```
 
-Every contract crate follows the same internal shape: `lib.rs`, `contract.rs`, `storage.rs`, `types.rs`, `errors.rs`, `events.rs`, `test.rs`.
+Each contract crate follows the same internal shape: `lib.rs`, `contract.rs`, `storage.rs`, `types.rs`, `errors.rs`, `events.rs`, `test.rs`. `batch_payout` is the one exception — it is stateless and so has no `storage.rs`.
 
 ### The contracts
 
-Build in the order given. Each is independently deployable; composition happens at the call site, not through inheritance.
+Each is independently deployable; composition happens at the call site, not through inheritance.
 
 #### `common`
 
 Not a contract — a shared library crate.
 
-- `Error` enum with a stable, documented numeric mapping. Never renumber a released variant.
+- `Error` enum with a stable, documented numeric mapping, one shared enum across the org with a reserved range per contract. **Never renumber or remove a released variant**; clients decode failures by integer.
 - Storage key enums and TTL/bump helpers. Soroban state expires; every contract must extend TTL on access, and this logic lives here so it is written once.
-- `require_auth` guard helpers.
-- Event emission helpers with a consistent topic scheme.
-- Basis-point math with explicit overflow handling. No silent saturation.
+- `require_auth` guard helpers. These check **membership before calling `require_auth`** — the reverse order would prompt an address that was never permitted to act.
+- Basis-point math with explicit overflow handling. No silent saturation. `split_bps` derives the remainder by subtraction so splits conserve the total exactly.
+
+Note on events: the original spec called for shared event-emission helpers here. `env.events().publish` is **deprecated as of soroban-sdk 27** in favour of the `#[contractevent]` macro, which is applied at each event's own definition site and so cannot be wrapped by a shared function. `common::events` therefore documents the normative topic scheme instead of providing code.
 
 #### `escrow`
 
@@ -155,9 +139,9 @@ Funds held by the contract, released on a condition.
 
 - `init(depositor, beneficiary, arbiter: Option<Address>, token, amount, deadline)`
 - `fund()` — pulls tokens from depositor
-- `release()` — beneficiary receives; callable by depositor or arbiter
-- `refund()` — callable by depositor after deadline, or by arbiter
-- `dispute()` / `resolve(split_bps)` — arbiter splits between parties
+- `release(caller)` — beneficiary receives; callable by depositor or arbiter
+- `refund(caller)` — callable by depositor after deadline, or by arbiter at any time
+- `dispute(caller)` / `resolve(split_bps)` — arbiter splits between parties; `split_bps` is the beneficiary's share
 - States: `Created → Funded → (Released | Refunded | Disputed → Resolved)`. Illegal transitions must error, not panic.
 
 #### `stream`
@@ -171,6 +155,7 @@ Continuous per-second transfer from sender to recipient.
 - `top_up(amount)` / `extend(new_stop)`
 - Accrual is computed from ledger timestamp at read time. Never write per-second state.
 - The critical correctness property: withdrawn + refunded + remaining always equals deposited, exactly, with no rounding leakage. Test this as an invariant.
+- The stream is fully funded for its whole declared span, so `deposited == rate * (stop - start)` always holds. `top_up` therefore rejects an amount that is not a whole number of seconds rather than stranding the remainder.
 
 #### `vesting`
 
@@ -181,6 +166,7 @@ Scheduled release against a schedule, with a cliff.
 - `revoke()` — grantor reclaims unvested; vested portion stays claimable
 - `vested_amount(at: u64)` — pure view, testable in isolation
 - Linear vesting after cliff. Nothing claimable before cliff. Fully vested at `start + duration`.
+- `cliff` and `duration` are spans in seconds from `start`, not absolute timestamps. `cliff == duration` is a legal all-or-nothing unlock.
 
 #### `recurring`
 
@@ -188,18 +174,22 @@ Pull-based authorization for subscriptions. The payer authorizes a cap and caden
 
 - `authorize(payer, payee, token, amount_per_period, period_seconds, max_periods: Option<u32>)`
 - `charge()` — callable by payee, at most once per elapsed period
-- `cancel()` — callable by either party, effective immediately
+- `cancel(caller)` — callable by either party, effective immediately
 - `next_chargeable_at()` — view
 - Must not accrue chargeable periods retroactively when a payee skips one. A payee who forgets to charge for three months cannot then charge three times. This is a deliberate consumer-protection choice; document it prominently.
+- The pull works through the token's allowance: the payer `approve`s this contract as spender and `charge` uses `transfer_from`. The contract holds no funds, and revoking the allowance stops charges without touching the contract.
 
 #### `batch_payout`
 
 One transaction, many recipients. The payroll primitive.
 
-- `execute(funder, token, recipients: Vec<(Address, i128)>)`
+- `execute(funder, token, recipients: Vec<Payment>)`
 - `execute_equal(funder, token, recipients: Vec<Address>, amount_each: i128)`
-- Enforce a documented maximum recipient count determined by resource limits, discovered empirically and asserted in a test — not guessed.
+- `preview(recipients)` — totals and validates without moving anything, for a pre-signature confirmation screen
+- Enforce a documented maximum recipient count determined by resource limits, **discovered empirically and asserted in a test — not guessed**.
 - All-or-nothing. A single failed transfer reverts the batch.
+
+On the cap: an initial guess of 100 failed with `Error(Budget, ExceededLimit)`. The measured figure is **40** (45 exceeds the budget) under soroban-sdk 27.0.6 in the local test environment, and a CI test re-measures it so the constant cannot drift above what actually executes. The local environment does not model transaction size limits, so re-measure against testnet before `v0.2`.
 
 ### Testing requirements
 
@@ -212,121 +202,91 @@ Non-negotiable, and the main thing that makes this credible as a dependency:
 - Integration tests in `/tests` that deploy real token contracts and exercise full lifecycles.
 - Target ≥90% line coverage, enforced in CI.
 
+### Open design question
+
+Every contract is currently **one position per deployed instance** — one escrow, one stream, one grant, one subscription. That follows the entry-point signatures above, which take no position id.
+
+It is worth revisiting before the SDK is built. An id-keyed design, where one deployment holds many positions, would suit the payroll and dashboard screens the app needs and would avoid a wasm deploy per stream. Changing it after the SDK exists is expensive, so decide now.
+
 ### Deliverables
 
-- All six crates building to optimized WASM
-- `make test` green
+- All six crates building to optimized WASM ✅
+- `make test` green ✅
 - Published contract specs as JSON, attached to a GitHub Release
 - Deployed to Stellar **testnet**, with addresses recorded in `DEPLOYMENTS.md`
 - No mainnet deployment until an external audit is complete. State this in the README.
 
 ---
 
-## Repo 2 — `sdk`
+## Repo 2 — `frontend`
 
-> `@sororail/sdk` — typed TypeScript client. No React, no framework assumptions.
-
-### Stack
-
-- TypeScript, strict mode
-- `@stellar/stellar-sdk`
-- `tsup` for bundling, dual ESM/CJS output
-- `vitest` for tests
-- `changesets` for versioning and release
-- Published as `@sororail/sdk`. Reserve the `@sororail` npm scope before the first release.
-
-### Design rules
-
-- Zero framework dependencies. React helpers, if ever built, go in a separate `@sororail/react` package in this same repo.
-- Every contract gets a client class: `EscrowClient`, `StreamClient`, `VestingClient`, `RecurringClient`, `BatchPayoutClient`.
-- Uniform method shape: build → simulate → sign → send → confirm, with each stage independently accessible. Callers who want to inspect a simulation before signing must be able to.
-- Signing is injected, never performed by the SDK. Accept a `Signer` interface; ship adapters for Freighter and for a keypair signer used in tests.
-- Contract errors are decoded into typed error classes with readable messages. A user must never see a bare error code.
-- Amounts cross the API boundary as `bigint`, never `number`. Provide `toStroops` / `fromStroops` helpers and document the decimals trap loudly.
+> The TypeScript half: SDK, reference application, and documentation site in one workspace.
 
 ### Layout
 
 ```
-sdk/
-├── package.json
-├── src/
-│   ├── index.ts
-│   ├── clients/          # one per contract
-│   ├── signers/          # freighter, keypair
-│   ├── errors/           # decoding + typed classes
-│   ├── types/
-│   └── utils/            # amounts, time, addresses
-├── test/
-└── examples/             # runnable node scripts, one per contract
+frontend/
+├── package.json           # workspace root (pnpm)
+├── packages/
+│   └── sdk/               # @sororail/sdk
+└── apps/
+    ├── web/               # Next.js reference application
+    └── docs/              # Astro Starlight
 ```
 
-### Testing
+`apps/web` and `apps/docs` both depend on `packages/sdk` by workspace reference. The SDK is still published to npm for outside consumers; the workspace reference is what removes the cross-repo coupling internally.
 
-- Unit tests with mocked RPC for building and error decoding
-- Integration tests against contracts deployed on testnet, in a separate CI job that is allowed to be slow
-- Every public method needs a runnable example in `examples/`. These double as documentation and as smoke tests.
+### `packages/sdk`
 
----
+> `@sororail/sdk` — typed TypeScript client. No React, no framework assumptions.
 
-## Repo 3 — `app`
+**Stack:** TypeScript strict mode, `@stellar/stellar-sdk` (17.0.1 at time of writing), `tsup` for dual ESM/CJS output, `vitest`, `changesets` for versioning. Reserve the `@sororail` npm scope before the first release.
+
+**Design rules**
+
+- Zero framework dependencies. React helpers, if ever built, go in a separate `packages/react`.
+- Every contract gets a client class: `EscrowClient`, `StreamClient`, `VestingClient`, `RecurringClient`, `BatchPayoutClient`.
+- Uniform method shape: build → simulate → sign → send → confirm, with each stage independently accessible. Callers who want to inspect a simulation before signing must be able to.
+- Signing is injected, never performed by the SDK. Accept a `Signer` interface; ship adapters for Freighter and for a keypair signer used in tests.
+- Contract errors are decoded into typed error classes with readable messages, using the numeric ranges from `sororail-common`. A user must never see a bare error code.
+- Amounts cross the API boundary as `bigint`, never `number`. Provide `toStroops` / `fromStroops` helpers and document the decimals trap loudly.
+- Surface `batch_payout`'s `max_recipients()` so callers can split an oversized payroll before submitting rather than having a transaction rejected.
+
+**Layout:** `src/clients/` (one per contract), `src/signers/`, `src/errors/`, `src/types/`, `src/utils/`, plus `test/` and `examples/`.
+
+**Testing:** unit tests with mocked RPC for building and error decoding; integration tests against testnet contracts in a separate CI job that is allowed to be slow. Every public method needs a runnable example in `examples/` — these double as documentation and as smoke tests.
+
+### `apps/web`
 
 > Reference fullstack application. Proves the SDK works and shows teams how to use it.
 
-This is the fullstack piece. It is a real application, not a demo page — but its purpose is demonstrative, so favour clarity of implementation over feature breadth.
+A real application, not a demo page — but its purpose is demonstrative, so favour clarity of implementation over feature breadth.
 
-### Stack
+**Stack:** Next.js App Router, TypeScript, `@sororail/sdk` by workspace reference, Freighter for wallet connection, Postgres via Drizzle ORM, a background indexer polling Soroban RPC for contract events, Tailwind.
 
-- Next.js, App Router, TypeScript
-- `@sororail/sdk` from npm
-- Freighter for wallet connection
-- Postgres via Drizzle ORM — for indexed history and metadata only, never as a source of truth for balances
-- A background indexer polling Soroban RPC for contract events
-- Tailwind, with the design direction below
-
-### Critical architectural rule
+**Critical architectural rule**
 
 **The chain is the source of truth. The database is a cache.** Balances, stream states, and vesting positions are always read from the contract for display of current state. The database exists to make history queryable and to store off-chain metadata such as recipient names, invoice notes, and email addresses. Any screen showing money must be reconcilable against chain state, and there should be a visible way to trigger that reconciliation.
 
-### Features
+**Features**
 
-**Wallet and account**
-- Connect via Freighter, network detection with a hard warning on network mismatch
-- Testnet faucet link and clear testnet-only banner
+- *Wallet and account* — connect via Freighter, network detection with a hard warning on mismatch, testnet faucet link and a clear testnet-only banner.
+- *Payroll* (`batch_payout` + `recurring`) — recipient list with CSV import, preview of total and per-recipient amounts and estimated fees before signing, batch execution with per-recipient confirmation, scheduled recurring runs. Duplicate detection belongs here, in the CSV import — the contract deliberately allows duplicates.
+- *Streams* (`stream`) — create with a live preview of the accrual curve, dashboard of incoming and outgoing streams with balances ticking in real time, withdraw / top up / extend / cancel.
+- *Vesting* (`vesting`) — create a grant with a visual schedule showing cliff and linear ramp, beneficiary view with claimable amount and next unlock, revoke for revocable grants.
+- *Escrow* (`escrow`) — create, fund, release, refund, optional arbiter with dispute and split-resolution flow.
+- *History* — unified event feed across all contracts from the indexer, CSV export.
 
-**Payroll** (`batch_payout` + `recurring`)
-- Recipient list with CSV import
-- Preview of total, per-recipient amounts, and estimated fees before signing
-- Execute a batch payout; show per-recipient confirmation
-- Schedule a recurring payroll run
+**Backend**
 
-**Streams** (`stream`)
-- Create a stream with a live preview of the accrual curve
-- Dashboard of incoming and outgoing streams, with balances ticking in real time
-- Withdraw, top up, extend, cancel
+- Route handlers under `app/api/`.
+- Indexer as a separate long-running process, not a serverless function. Resumable from the last processed ledger and idempotent on replay.
+- Schema: `accounts`, `contacts`, `payment_runs`, `payment_run_items`, `indexed_events`, `sync_state`.
+- **No private keys server-side, ever.** All signing is client-side through the wallet. Say this explicitly in the README so no contributor is tempted.
 
-**Vesting** (`vesting`)
-- Create a grant with a visual schedule showing cliff and linear ramp
-- Beneficiary view with claimable amount and next unlock
-- Revoke, for revocable grants
+**Design direction**
 
-**Escrow** (`escrow`)
-- Create, fund, release, refund
-- Optional arbiter with a dispute and split-resolution flow
-
-**History**
-- Unified event feed across all contracts, from the indexer
-- CSV export
-
-### Backend
-
-- Route handlers under `app/api/`
-- Indexer as a separate long-running process, not a serverless function. It must be resumable from the last processed ledger and idempotent on replay.
-- Schema: `accounts`, `contacts`, `payment_runs`, `payment_run_items`, `indexed_events`, `sync_state`
-- No private keys server-side, ever. All signing is client-side through the wallet. Say this explicitly in the README so no contributor is tempted.
-
-### Design direction
-
-The audience is finance and operations staff at small companies, plus the developers evaluating the SDK. The job is to make irreversible money movements feel inspectable before they happen.
+The audience is finance and operations staff at small companies, plus developers evaluating the SDK. The job is to make irreversible money movements feel inspectable before they happen.
 
 - Confirmation before consequence: every state-changing action shows exactly what will happen — amounts, recipients, fees, and what cannot be undone — before the signing prompt.
 - Numbers are the interface. Set monetary figures in a face with true tabular figures so columns align, and give amounts more typographic weight than the labels around them.
@@ -335,40 +295,20 @@ The audience is finance and operations staff at small companies, plus the develo
 - Errors say what happened and what to do. Never surface a raw contract error code.
 - Do not reach for the default AI-design palette. Pick a palette grounded in the subject — this is a ledger tool, and legibility under scrutiny matters more than personality. Spend boldness in one place only.
 
-### Testing
+**Testing:** Playwright end-to-end against testnet contracts, covering at minimum connect wallet, create stream, withdraw, create batch payout. Component tests for amount input and formatting, which is where money bugs hide. Seed script for local development.
 
-- Playwright end-to-end tests against testnet contracts, covering at minimum: connect wallet, create stream, withdraw, create batch payout
-- Component tests for amount input and formatting, which is where money bugs hide
-- Seed script for local development
+### `apps/docs`
 
----
-
-## Repo 4 — `docs`
-
-> Documentation site.
-
-- Astro Starlight, deployed to Cloudflare Pages or Vercel
-- Sections: Getting started, Concepts (one page per payment primitive, explaining the pattern before the API), Contract reference, SDK reference, Guides, Security, Contributing
+- Astro Starlight, deployed to Cloudflare Pages or Vercel.
+- Sections: Getting started, Concepts (one page per payment primitive, explaining the pattern before the API), Contract reference, SDK reference, Guides, Security, Contributing.
 - Concepts pages must be readable by someone who has never used Soroban. This is the on-ramp.
-- Every code sample must be extracted from a compiling example in `sdk/examples/`, not hand-written into the docs where it will rot.
+- Every code sample must be extracted from a compiling example in `packages/sdk/examples/`, not hand-written into the docs where it will rot.
 - Include a page on the decimals trap and one on Soroban TTL/state expiry, since both bite every new integrator.
+- Document the two consumer-facing behaviours that will otherwise surprise people: recurring charges do not accrue retroactively, and batch payouts are capped and all-or-nothing.
 
 ---
 
-## Repo 5 — `.github`
-
-> Org profile and shared configuration.
-
-- `profile/README.md` — the org landing page. What sororail is, the five repos, how to start contributing, link to good-first-issues across the org.
-- Shared issue templates: bug, feature, contract-proposal, docs
-- PR template with a checklist: tests added, docs updated, no unrelated changes, breaking-change note
-- `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`
-- Reusable CI workflows referenced by the other repos
-- Label taxonomy applied consistently org-wide: `good-first-issue`, `help-wanted`, `contract`, `sdk`, `app`, `docs`, `security`, `breaking`, and difficulty labels `size/s`, `size/m`, `size/l`
-
----
-
-## Conventions that apply to every repo
+## Conventions that apply to both repos
 
 **Licensing.** Apache-2.0 across the org. Add the license file before the first external contribution.
 
@@ -378,9 +318,11 @@ The audience is finance and operations staff at small companies, plus the develo
 
 **CI must run on every PR.** Format check, lint, tests, build. Red CI blocks merge, with no exceptions for maintainers.
 
-**Every repo gets, at minimum:** `README.md`, `LICENSE`, `CONTRIBUTING.md`, `SECURITY.md`, `FUNDING.json`, `.editorconfig`, a CI workflow, and issue/PR templates inherited from `.github`.
+**Every repo gets, at minimum:** `README.md`, `LICENSE`, `CONTRIBUTING.md`, `SECURITY.md`, `FUNDING.json`, `.editorconfig`, a CI workflow, and issue/PR templates. With no `.github` repo to inherit from, these are copied into each repo; keep them in sync by hand, which at two repos is cheap.
 
-**`FUNDING.json`** goes on the default branch of every repo from the first commit, so each repo is claimable on Drips and can accrue before anyone has heard of it. Configure splits per the [dependency graph](#dependency-graph).
+**Label taxonomy**, applied consistently across both: `good-first-issue`, `help-wanted`, `contract`, `sdk`, `app`, `docs`, `security`, `breaking`, and difficulty labels `size/s`, `size/m`, `size/l`.
+
+**`FUNDING.json`** goes on the default branch of every repo from the first commit, so each repo is claimable on Drips and can accrue before anyone has heard of it.
 
 **Issue hygiene.** Every issue intended for outside contributors must state: the problem, the affected file paths, the expected behavior, acceptance criteria, and how to test the change locally. An issue that does not meet that bar is not ready to be labelled `good-first-issue`.
 
@@ -405,28 +347,30 @@ The credibility of this project rests on not overstating its maturity. A library
 
 ## Roadmap
 
-**v0.1 — foundations.** `common`, `escrow`, `stream` with full tests. SDK clients for both. Testnet deployment.
+**v0.1 — foundations.** All six contract crates with full tests. ✅ Contracts done; testnet deployment and contract-spec release outstanding.
 
-**v0.2 — the payroll set.** `vesting`, `recurring`, `batch_payout`. SDK coverage complete. App: payroll and streams.
+**v0.2 — the SDK.** SDK clients for all five contracts, error decoding, Freighter and keypair signers, runnable examples. `MAX_RECIPIENTS` re-measured against testnet. The one-position-per-instance question settled.
 
-**v0.3 — reference app complete.** Indexer, history, all five primitives in the UI. Docs site live.
+**v0.3 — reference app.** Indexer, history, all five primitives in the UI. Docs site live.
 
 **v0.4 — hardening.** Fuzz testing, gas/resource benchmarking, external audit engagement, mainnet readiness review.
 
-Deliberately excluded from the roadmap: multi-chain support, a token issuance module, fiat integration, a hosted service. If these come up in issues, decline them and say why.
+Deliberately excluded: multi-chain support, a token issuance module, fiat integration, a hosted service. If these come up in issues, decline them and say why.
 
 ---
 
 ## Verify before you build
 
-This spec was written from a snapshot and the Soroban toolchain moves quickly. Before writing code, confirm the following against current sources rather than trusting anything here:
+This spec was written from a snapshot and the Soroban toolchain moves quickly. Confirm the following against current sources rather than trusting anything here. Items marked ✅ were verified on 2026-09-07 while building `contracts`.
 
-1. **Current `soroban-sdk` version** and whether the pinned Rust toolchain matches its requirements.
-2. **Current `stellar` CLI syntax.** The CLI was renamed from `soroban` and command shapes have changed across releases; older tutorials will be wrong.
-3. **Protocol version on testnet** and which host functions are available. Protocol 25 introduced cryptographic primitives that may be relevant to later work.
-4. **Current `@stellar/stellar-sdk` major version** and its RPC client API surface.
-5. **Resource limits** — instruction count, ledger entry size, transaction size. These determine the real maximum recipient count for `batch_payout`. Discover this empirically with a test that ramps recipient count until failure; do not hardcode a guess.
-6. **Whether the Stellar Asset Contract interface has changed** for the token calls the contracts make.
+1. ✅ **Current `soroban-sdk` version** — 27.0.6 stable; 28.0.0-rc.1 is a prerelease and `cargo info` surfaces it first. Rust 1.97.1 satisfies its 1.91 minimum.
+2. ✅ **Current `stellar` CLI syntax** — 27.1.0. The CLI was renamed from `soroban` and command shapes have changed across releases; older tutorials will be wrong.
+3. **Protocol version on testnet** and which host functions are available. Not yet checked — needs network access.
+4. ✅ **Current `@stellar/stellar-sdk` major version** — 17.0.1.
+5. ⚠️ **Resource limits** — instruction count, ledger entry size, transaction size. Measured *locally* at 40 recipients for `batch_payout`; the local environment does not model transaction size, so this must be re-measured against testnet.
+6. **Whether the Stellar Asset Contract interface has changed** for the token calls the contracts make. `transfer`, `transfer_from` and `approve` all work as expected against soroban-sdk 27's test SAC, but this has not been checked against a live network.
+
+Also note, discovered while building: **`env.events().publish` is deprecated** in soroban-sdk 27 in favour of `#[contractevent]`. Any guidance written against the older API will produce deprecation warnings that CI treats as errors.
 
 Where current documentation contradicts this spec, current documentation wins. Note the discrepancy in the PR description so the spec can be corrected.
 
