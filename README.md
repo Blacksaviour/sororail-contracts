@@ -1,187 +1,135 @@
-# so4-oracle
+# SoroRail — contracts
 
-Production Axum service for the SO4.market Soroban oracle and keeper.
+**Composable Soroban payment contracts.** Rust, `no_std`, audited-in-intent.
 
-This repository contains a single Rust binary that runs:
-- Price fetching and aggregation from multiple sources (Binance, Coinbase, Pyth)
-- Keeper loop that executes pending orders, deposits, and withdrawals on-chain
-- HTTP API for price feeds and operational endpoints
+This is the core repository of [SoroRail](https://github.com/sororail): a small
+set of well-tested payment primitives that recur in nearly every real Stellar
+application — escrow, streaming, vesting, subscriptions, batch payout — so that
+teams stop hand-rolling their own vesting math and authorization checks.
 
-## Architecture.
+Everything downstream (`sdk`, `app`, `docs`) depends on this repo. Nothing
+downstream can be correct until these are.
+
+> ### Unaudited. Testnet only.
+>
+> **Do not deploy to mainnet or handle real value until an external audit is
+> complete.** No mainnet addresses will be published before then. See
+> [SECURITY.md](SECURITY.md).
+
+The full org build specification lives in [SPEC.md](SPEC.md).
+
+## The contracts
+
+| Crate | Purpose |
+|---|---|
+| `sororail-common` | Shared errors, TTL helpers, auth guards, events, checked math. Not a contract. |
+| `sororail-escrow` | Funds held by the contract, released on a condition. Optional arbiter with dispute and split resolution. |
+| `sororail-stream` | Continuous per-second transfer from sender to recipient. |
+| `sororail-vesting` | Scheduled release against a schedule, with a cliff. |
+| `sororail-recurring` | Pull-based authorization for subscriptions. |
+| `sororail-batch-payout` | One transaction, many recipients. The payroll primitive. |
+
+Each is independently deployable. Composition happens at the call site, not
+through inheritance.
+
+## Layout
 
 ```
-so4-oracle  (single statically-deployed binary)
-├── main.rs            tokio::main → load Config → build AppState → spawn loops → serve axum
-├── HTTP API (axum + tower-http CORS/trace)
-│     GET /health                      public   liveness
-│     GET /ready                       public   RPC reachable + keeper funded
-│     GET /prices                      public   serves in-memory PriceCache (frontend)
-│     GET /oracle/status               admin    last cycle, balance, per-token state
-│     GET /keeper/status               admin    pending work + last N executions
-│     GET /keeper/balance              admin    live keeper account XLM balance
-│     GET /oracle/failed-submissions   admin    ring buffer of failures
-│     GET /metrics                     admin    Prometheus metrics
-├── task: price_loop   tokio::interval(~1s)
-│     fetch sources → validate → aggregate min/max → sign → write PriceCache
-└── task: keeper_loop  tokio::interval(~1-2s)
-      poll reader (orders/deposits/withdrawals)
-      → if work: set_prices(needed tokens) → execute_*(key) per item → freeze on budget
-      → record results; never panics the loop
+contracts/
+├── Cargo.toml              # workspace root
+├── rust-toolchain.toml     # pinned toolchain
+├── Makefile                # build / test / fmt / lint / optimize / specs
+├── contracts/
+│   ├── common/             # shared library crate
+│   ├── escrow/
+│   ├── stream/
+│   ├── vesting/
+│   ├── recurring/
+│   └── batch_payout/
+└── tests/                  # cross-contract integration tests
 ```
 
-## Deployed Contract Reference
+Every contract crate follows the same internal shape: `lib.rs`, `contract.rs`,
+`storage.rs`, `types.rs`, `errors.rs`, `events.rs`, `test.rs`.
 
-Testnet oracle:
+## Toolchain
 
-```text
-ORACLE=CBEMTV23SIJJBIST3V5HTMWHR4MHYGHNBIG4M26U4LGUJTWZXTFSVQEY
-ORDER_HANDLER=CC35OFZVWUTAZPV3B6UKSDVAVORZEWUUMOMTHO33H4YR4C5FKPEFODKY
-DEPOSIT_HANDLER=CDWOFIP4YQJGMCYAOWLSRBAWN2OTJUG2I5WOFC32O2TX2SRU56RWBE5C
-WITHDRAWAL_HANDLER=CCA5HRHMG6E6BVYRICSLZ5CK5KNPAAKXQ7XWDM34WWVGNHWHA26GRVVE
-READER=CC6OZUHF3LVO6PNP3V2EB36ORB3YSVYSH3LWD3RFLO4NUO3BYCXSWSYC
-DATA_STORE=CCZ3VKBEDLNBO2JM3EXL3SNBDJOV5BTN52FVQPER7F6D5GCE53PITQ3J
-ROLE_STORE=CBSUAIAMIFFS4AXQYZ7KR7FNO7IMKAPS5WF4DXANVXDTPKH2F7YUIN6Q
-NETWORK_PASSPHRASE="Test SDF Network ; September 2015"
-RPC_URL=https://soroban-testnet.stellar.org
-```
+Verified against current sources on 2026-09-07:
 
-## Required Environment Variables.
-
-The names below are the exact names the binary reads at startup via
-`Config::from_env()`. Using any other name (e.g. `ORDER_HANDLER_CONTRACT_ID`)
-will silently be ignored and the process will exit with a "required env var
-not set" error (#499).
-
-```bash
-# Network configuration
-STELLAR_NETWORK=testnet           # "testnet" (default) or "mainnet"
-STELLAR_RPC_URL=https://soroban-testnet.stellar.org  # required on mainnet; optional on testnet
-HORIZON_URL=https://horizon-testnet.stellar.org      # optional; defaults to network default
-
-# Contract IDs — use the short names exactly as shown
-ORACLE_CONTRACT_ID=CBEMTV23SIJJBIST3V5HTMWHR4MHYGHNBIG4M26U4LGUJTWZXTFSVQEY
-ORDER_HANDLER=CC35OFZVWUTAZPV3B6UKSDVAVORZEWUUMOMTHO33H4YR4C5FKPEFODKY
-DEPOSIT_HANDLER=CDWOFIP4YQJGMCYAOWLSRBAWN2OTJUG2I5WOFC32O2TX2SRU56RWBE5C
-WITHDRAWAL_HANDLER=CCA5HRHMG6E6BVYRICSLZ5CK5KNPAAKXQ7XWDM34WWVGNHWHA26GRVVE
-READER=CC6OZUHF3LVO6PNP3V2EB36ORB3YSVYSH3LWD3RFLO4NUO3BYCXSWSYC
-DATA_STORE=CCZ3VKBEDLNBO2JM3EXL3SNBDJOV5BTN52FVQPER7F6D5GCE53PITQ3J
-ROLE_STORE=CBSUAIAMIFFS4AXQYZ7KR7FNO7IMKAPS5WF4DXANVXDTPKH2F7YUIN6Q
-
-# Keeper configuration
-KEEPER_PRIVATE_KEY=<64-hex-char ed25519 private key>
-KEEPER_SECRET_KEY=<S...-strkey seed>
-KEEPER_ACCOUNT_ID=<G...-public key>
-KEEPER_INDEX=0
-MIN_KEEPER_BALANCE_XLM=10
-# Optional inclusion fees (stroops); defaults match historical hardcoded values
-SET_PRICES_TX_FEE=1000000
-KEEPER_TX_FEE=2000000
-
-# API configuration
-BIND_ADDR=0.0.0.0:8080
-ADMIN_API_TOKEN=<optional admin token>
-
-# Loop intervals (milliseconds)
-PRICE_LOOP_MS=1000
-KEEPER_LOOP_MS=1500
-
-# Price feed configuration (optional; falls back to embedded config/tokens.json)
-PRICE_FEED_CONFIG=/path/to/tokens.json
-```
-
-> **Note:** `NETWORK_PASSPHRASE` is not read by the binary — the correct
-> passphrase is selected automatically based on `STELLAR_NETWORK`. You do
-> not need to set it.
+| Component | Version | Note |
+|---|---|---|
+| `soroban-sdk` | **27.0.6** | Latest stable. 28.0.0-rc.1 is a prerelease — do not pin it. |
+| `stellar` CLI | 27.1.0 | Renamed from `soroban`; older tutorials use the old command shapes. |
+| Rust | 1.97.1 | Pinned in `rust-toolchain.toml`. soroban-sdk 27 needs ≥1.91. |
+| WASM target | `wasm32v1-none` | **Not** `wasm32-unknown-unknown`, which soroban-sdk ≥22 no longer targets. |
 
 ## Development
 
 ```bash
-# Check the code
-cargo check --workspace
-
-# Run tests
-cargo test --workspace
-
-# Run locally (with .env file)
-cargo run --bin oracle
-
-# Build for production
-cargo build --release --bin oracle
+make build      # release wasm for all contracts
+make test       # host tests (testutils needs std, so tests do not run on wasm)
+make lint       # clippy, warnings denied
+make optimize   # strip and shrink each wasm
+make specs      # contract specs as JSON, for the SDK and releases
+make ci         # everything CI runs
 ```
 
-## Deployment
+`cargo-nextest` is the test runner in CI. Install it locally with
+`cargo install cargo-nextest`.
 
-### Docker
+## Design rules
 
-```bash
-# Build the image
-docker build -t so4-oracle .
+**Money math errors; it never saturates.** Every arithmetic operation goes
+through `sororail_common::math`, which returns an error on overflow rather than
+producing a wrong-but-plausible balance. `overflow-checks` is on in release
+builds too.
 
-# Run with environment variables
-docker run -p 8080:8080 \
-  -e STELLAR_RPC_URL=https://soroban-testnet.stellar.org \
-  -e KEEPER_PRIVATE_KEY=<key> \
-  -e KEEPER_SECRET_KEY=<secret> \
-  -e KEEPER_ACCOUNT_ID=<account> \
-  so4-oracle
-```
+**Error numbers are ABI.** `sororail_common::errors::Error` assigns each
+contract a documented numeric range. A released variant is never renumbered and
+never removed — clients decode failures by integer.
 
-### Systemd
+**Membership is checked before `require_auth`.** Missing authorization checks
+are the most common Soroban vulnerability class, so guards live in
+`sororail_common::auth` and every privileged entry point has a test asserting it
+fails for an unauthorized caller.
 
-```bash
-# Copy the service file
-sudo cp oracle.service /etc/systemd/system/
+**State expires.** Soroban archives entries that are not extended. Every entry
+point that touches storage extends the TTL of what it touched, using the helpers
+in `sororail_common::storage`.
 
-# Create environment file
-sudo cp .env /opt/oracle/.env
+## Testing requirements
 
-# Enable and start
-sudo systemctl enable oracle
-sudo systemctl start oracle
-```
+Non-negotiable — this is what makes the contracts credible as a dependency:
 
-### Fly.io
+- Unit tests per contract using `soroban_sdk::testutils`, advancing time via the
+  test ledger rather than a mocked clock.
+- An authorization test per privileged entry point, asserting failure for an
+  unauthorized caller.
+- Arithmetic edge cases: zero amounts, `i128::MAX`, one-second durations, cliff
+  equal to duration, stop before start.
+- Conservation invariants for `stream` and `vesting`: withdrawn + refunded +
+  remaining always equals deposited, exactly, with no rounding leakage.
+- Integration tests in `tests/` deploying real token contracts over full
+  lifecycles.
+- ≥90% line coverage, enforced in CI.
 
-```bash
-# Deploy to Fly.io
-fly deploy
+## Status
 
-# Set secrets
-fly secrets set KEEPER_PRIVATE_KEY=<key>
-fly secrets set KEEPER_SECRET_KEY=<secret>
-fly secrets set KEEPER_ACCOUNT_ID=<account>
-```
+`v0.1` in progress. See [SPEC.md](SPEC.md) for the roadmap.
 
-### Railway
+- [x] `common`
+- [ ] `escrow`
+- [ ] `stream`
+- [ ] `vesting`
+- [ ] `recurring`
+- [ ] `batch_payout`
+- [ ] Testnet deployment, addresses recorded in `DEPLOYMENTS.md`
 
-```bash
-# Deploy to Railway
-railway up
+## Contributing
 
-# Set environment variables in Railway dashboard
-```
+See [CONTRIBUTING.md](CONTRIBUTING.md). Issues labelled `good-first-issue` are
+scoped so that someone new to Soroban can complete them.
 
-## Endpoints
+## License
 
-| Endpoint | Method | Auth | Description |
-|----------|--------|------|-------------|
-| `/health` | GET | No | Liveness check |
-| `/ready` | GET | No | Readiness check (RPC + keeper balance) |
-| `/prices` | GET | No | Current price feeds (CORS-enabled) |
-| `/oracle/status` | GET | Admin | Oracle status and recent errors |
-| `/keeper/status` | GET | Admin | Keeper status and execution history |
-| `/keeper/balance` | GET | Admin | Live keeper account XLM balance |
-| `/oracle/failed-submissions` | GET | Admin | Failed submission history |
-| `/metrics` | GET | Admin | Prometheus metrics |
-
-## Observability
-
-Every request emits a structured JSON log carrying: `timestamp`, `level`, `method`, `route` (matched path, not raw URI), `status`, `latency_ms`, and `request_id`. An `x-request-id` header is accepted on inbound requests; if absent, a UUIDv4 is generated. The request ID is echoed in the response headers and included in all handler-internal log events.
-
-The following HTTP metrics are exposed at `/metrics`:
-- `oracle_http_requests_total{route,method,status_class}` (counter)
-- `oracle_http_request_duration_seconds_bucket{route,le}` (histogram)
-- `oracle_http_requests_in_flight` (gauge)
-- `oracle_http_auth_failures_total{route}` (counter for 401s on admin routes)
-
-> **Note:** Health check traffic (`/health` and `/ready`) is logged at the `debug` level. Because these endpoints are polled frequently (e.g., every 30s by the Docker HEALTHCHECK), logging them at `info` would drown out real traffic.
+Apache-2.0. See [LICENSE](LICENSE).

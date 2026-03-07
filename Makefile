@@ -1,16 +1,48 @@
-.PHONY: test check build fmt clippy
+WASM_TARGET := wasm32v1-none
+WASM_DIR    := target/$(WASM_TARGET)/release
+CONTRACTS   := escrow stream vesting recurring batch_payout
 
-check:
-	cargo check --workspace
+.PHONY: all build test fmt fmt-check lint audit optimize specs clean ci
+
+all: build test
 
 build:
-	cargo build --workspace
+	cargo build --workspace --target $(WASM_TARGET) --release
 
+# Tests run on the host, not on wasm -- soroban_sdk::testutils needs std.
 test:
 	cargo test --workspace
 
 fmt:
 	cargo fmt --all
 
-clippy:
-	cargo clippy --all-targets -- -D warnings
+fmt-check:
+	cargo fmt --all -- --check
+
+lint:
+	cargo clippy --workspace --all-targets -- -D warnings
+
+audit:
+	cargo audit
+
+# Strips and shrinks each contract wasm. Requires the `stellar` CLI.
+optimize: build
+	@for c in $(CONTRACTS); do \
+		echo "optimizing $$c"; \
+		stellar contract optimize --wasm $(WASM_DIR)/sororail_$$c.wasm || exit 1; \
+	done
+
+# Contract specs as JSON, attached to the GitHub Release.
+specs: build
+	@mkdir -p dist/specs
+	@for c in $(CONTRACTS); do \
+		stellar contract info interface --output json \
+			--wasm $(WASM_DIR)/sororail_$$c.wasm > dist/specs/$$c.json || exit 1; \
+	done
+	@echo "specs written to dist/specs/"
+
+ci: fmt-check lint test build
+
+clean:
+	cargo clean
+	rm -rf dist
