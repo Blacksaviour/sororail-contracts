@@ -1,4 +1,4 @@
-use soroban_sdk::{contracttype, Address, Vec};
+use soroban_sdk::{contracttype, Address};
 
 /// Maximum recipients permitted in one batch.
 ///
@@ -46,5 +46,14 @@ pub struct Receipt {
     pub total: i128,
 }
 
-/// A batch of payments.
-pub type Payments = Vec<Payment>;
+// There was a `pub type Payments = Vec<Payment>` alias here, used in the
+// `execute` and `preview` signatures. Do not reintroduce it.
+//
+// `#[contractimpl]` reads argument types syntactically and cannot resolve an
+// alias, so it emitted a contract spec referring to a user-defined type called
+// `Payments` that does not exist. The contract deployed and the Rust tests all
+// passed, but every client reading the spec broke: `stellar contract invoke`
+// failed with `Missing Entry Payments` on *any* function of the contract,
+// including argument-less ones, because the whole interface failed to load.
+//
+// Spell soroban types out in full in entry-point signatures.

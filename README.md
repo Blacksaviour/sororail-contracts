@@ -7,8 +7,8 @@ set of well-tested payment primitives that recur in nearly every real Stellar
 application — escrow, streaming, vesting, subscriptions, batch payout — so that
 teams stop hand-rolling their own vesting math and authorization checks.
 
-Everything downstream (`sdk`, `app`, `docs`) depends on this repo. Nothing
-downstream can be correct until these are.
+The `frontend` repo — SDK, reference application and docs site — depends on
+this one. Nothing downstream can be correct until these are.
 
 > ### Unaudited. Testnet only.
 >
@@ -123,9 +123,9 @@ Non-negotiable — this is what makes the contracts credible as a dependency:
 - [x] `vesting`
 - [x] `recurring`
 - [x] `batch_payout`
-- [ ] Cross-contract integration tests in `tests/`
-- [ ] Coverage measured against the ≥90% gate
-- [ ] Testnet deployment, addresses recorded in `DEPLOYMENTS.md`
+- [x] Cross-contract integration tests in `tests/`
+- [x] Coverage measured: 98.66% lines, against the ≥90% gate
+- [x] Testnet deployment, addresses recorded in [DEPLOYMENTS.md](DEPLOYMENTS.md)
 - [ ] `MAX_RECIPIENTS` re-measured against testnet (see below)
 
 ### Known gaps

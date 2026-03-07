@@ -3,7 +3,7 @@ use sororail_common::{math, Error};
 
 use crate::{
     events,
-    types::{Payment, Payments, Receipt, MAX_RECIPIENTS},
+    types::{Payment, Receipt, MAX_RECIPIENTS},
 };
 
 #[contract]
@@ -24,7 +24,7 @@ impl BatchPayoutContract {
         env: Env,
         funder: Address,
         token: Address,
-        recipients: Payments,
+        recipients: Vec<Payment>,
     ) -> Result<Receipt, Error> {
         let count = Self::check_size(&recipients)?;
 
@@ -99,7 +99,7 @@ impl BatchPayoutContract {
     /// Runs exactly the validation [`Self::execute`] does, so a preview that
     /// succeeds means the batch itself will not be rejected for size, an
     /// invalid amount, or an overflowing total.
-    pub fn preview(_env: Env, recipients: Payments) -> Result<Receipt, Error> {
+    pub fn preview(_env: Env, recipients: Vec<Payment>) -> Result<Receipt, Error> {
         let count = Self::check_size(&recipients)?;
         let mut total: i128 = 0;
         for payment in recipients.iter() {

@@ -38,7 +38,9 @@ jobs:
         with:
           targets: wasm32v1-none
       - uses: Swatinem/rust-cache@v2
-      - run: cargo build --workspace --target wasm32v1-none --release
+      # sororail-integration-tests is host-only (needs std); it is excluded
+      # here rather than being allowed to fail the wasm build.
+      - run: cargo build --workspace --exclude sororail-integration-tests --target wasm32v1-none --release
       - uses: actions/upload-artifact@v4
         with:
           name: wasm

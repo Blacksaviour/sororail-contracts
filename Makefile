@@ -6,8 +6,11 @@ CONTRACTS   := escrow stream vesting recurring batch_payout
 
 all: build test
 
+# The integration-test crate is host-only (it needs std), so it is excluded
+# from the wasm build rather than failing it.
 build:
-	cargo build --workspace --target $(WASM_TARGET) --release
+	cargo build --workspace --exclude sororail-integration-tests \
+		--target $(WASM_TARGET) --release
 
 # Tests run on the host, not on wasm -- soroban_sdk::testutils needs std.
 test:
