@@ -1728,6 +1728,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "sororail-integration-tests"
+version = "0.1.0"
+dependencies = [
+ "soroban-sdk",
+ "sororail-batch-payout",
+ "sororail-common",
+ "sororail-escrow",
+ "sororail-recurring",
+ "sororail-stream",
+ "sororail-vesting",
+]
+
+[[package]]
 name = "sororail-recurring"
 version = "0.1.0"
 dependencies = [
