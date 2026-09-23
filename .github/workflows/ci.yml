@@ -76,6 +76,20 @@ jobs:
           name: specs
           path: dist/specs/*.json
 
+  msrv:
+    name: msrv (1.91)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          # Must equal rust-version in Cargo.toml.
+          toolchain: "1.91"
+          targets: wasm32v1-none
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check --workspace --all-targets --locked
+      - run: cargo check --workspace --exclude sororail-integration-tests --target wasm32v1-none --locked
+
   coverage:
     name: coverage (>=90%)
     runs-on: ubuntu-latest
