@@ -13,7 +13,25 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Least privilege: jobs get the repo default scope unless overridden below.
+# Only the audit job gets more (checks: write for rustsec/audit-check).
+permissions:
+  contents: read
+
 jobs:
+  conventional-commits:
+    name: conventional commits
+    runs-on: ubuntu-latest
+    # PR title becomes the squash-merge commit, so that is what we validate.
+    # SPEC.md and CONTRIBUTING.md require Conventional Commits.
+    if: github.event_name == 'pull_request'
+    permissions:
+      pull-requests: read
+    steps:
+      - uses: amannn/action-semantic-pull-request@v5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   check:
     name: fmt / clippy / test
     runs-on: ubuntu-latest
@@ -52,6 +70,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          # Pinned to match rust-toolchain.toml so coverage numbers cannot
+          # drift when stable moves. Keep in sync by hand.
+          toolchain: 1.97.1
       - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@cargo-llvm-cov
       - uses: taiki-e/install-action@nextest
@@ -60,6 +82,9 @@ jobs:
   audit:
     name: cargo audit
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: write
     steps:
       - uses: actions/checkout@v4
       - uses: rustsec/audit-check@v2
