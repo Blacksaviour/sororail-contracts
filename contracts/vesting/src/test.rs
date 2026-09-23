@@ -4,10 +4,10 @@
 
 use soroban_sdk::{
     testutils::{Address as _, Ledger as _},
-    token::{StellarAssetClient, TokenClient},
+    token::TokenClient,
     Address, Env,
 };
-use sororail_common::Error;
+use sororail_common::{testutils::TestEnv, Error};
 
 use crate::{
     contract::{VestingContract, VestingContractClient},
@@ -34,15 +34,11 @@ impl Fixture<'_> {
     }
 
     fn with_schedule(revocable: bool, cliff: u64, duration: u64) -> Self {
-        let env = Env::default();
-        env.mock_all_auths();
-        env.ledger().with_mut(|l| l.timestamp = START);
-
-        let grantor = Address::generate(&env);
-        let beneficiary = Address::generate(&env);
-        let issuer = Address::generate(&env);
-        let token_address = env.register_stellar_asset_contract_v2(issuer).address();
-        StellarAssetClient::new(&env, &token_address).mint(&grantor, &MINT);
+        let te = TestEnv::at(START);
+        let (token, grantor) = te.make_token(MINT);
+        let token_address = token.address.clone();
+        let beneficiary = te.make_address();
+        let env = te.env;
 
         let client = VestingContractClient::new(&env, &env.register(VestingContract, ()));
         client.create(

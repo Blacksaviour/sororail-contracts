@@ -5,10 +5,10 @@
 use soroban_sdk::{
     map,
     testutils::{Address as _, Events as _, Ledger as _},
-    token::{StellarAssetClient, TokenClient},
+    token::TokenClient,
     vec, Address, Env, IntoVal, Symbol, Val,
 };
-use sororail_common::Error;
+use sororail_common::{testutils::TestEnv, Error};
 
 use crate::{
     contract::{StreamContract, StreamContractClient},
@@ -33,17 +33,12 @@ struct Fixture<'a> {
 
 impl Fixture<'_> {
     fn new(cancellable: bool) -> Self {
-        let env = Env::default();
-        env.mock_all_auths();
-        env.ledger().with_mut(|l| l.timestamp = START);
-
-        let sender = Address::generate(&env);
-        let recipient = Address::generate(&env);
-        let outsider = Address::generate(&env);
-
-        let issuer = Address::generate(&env);
-        let token_address = env.register_stellar_asset_contract_v2(issuer).address();
-        StellarAssetClient::new(&env, &token_address).mint(&sender, &MINT);
+        let te = TestEnv::at(START);
+        let (token, sender) = te.make_token(MINT);
+        let token_address = token.address.clone();
+        let recipient = te.make_address();
+        let outsider = te.make_address();
+        let env = te.env;
 
         let client = StreamContractClient::new(&env, &env.register(StreamContract, ()));
         client.create(
@@ -246,16 +241,12 @@ fn create_allows_the_exact_max_funding_boundary() {
     // M127), so the only single-second-span way to land exactly on it is
     // `rate = i128::MAX`, `duration = 1`; one more second overflows (asserted
     // just above, in `create_rejects_funding_that_overflows`).
-    let env = Env::default();
-    env.mock_all_auths();
-    env.ledger().with_mut(|l| l.timestamp = START);
-    let sender = Address::generate(&env);
-    let recipient = Address::generate(&env);
-    let issuer = Address::generate(&env);
-    let token = env.register_stellar_asset_contract_v2(issuer).address();
-    StellarAssetClient::new(&env, &token).mint(&sender, &i128::MAX);
+    let te = TestEnv::at(START);
+    let (token_client, sender) = te.make_token(i128::MAX);
+    let token = token_client.address.clone();
+    let recipient = te.make_address();
+    let env = te.env;
     let c = StreamContractClient::new(&env, &env.register(StreamContract, ()));
-    let token_client = TokenClient::new(&env, &token);
 
     c.create(
         &sender,
@@ -408,14 +399,11 @@ fn repeated_withdrawals_never_exceed_the_deposit() {
 #[test]
 #[should_panic]
 fn withdraw_requires_the_recipients_authorization() {
-    let env = Env::default();
-    env.mock_all_auths();
-    env.ledger().with_mut(|l| l.timestamp = START);
-    let sender = Address::generate(&env);
-    let recipient = Address::generate(&env);
-    let issuer = Address::generate(&env);
-    let token = env.register_stellar_asset_contract_v2(issuer).address();
-    StellarAssetClient::new(&env, &token).mint(&sender, &MINT);
+    let te = TestEnv::at(START);
+    let (token_client, sender) = te.make_token(MINT);
+    let token = token_client.address.clone();
+    let recipient = te.make_address();
+    let env = te.env;
     let c = StreamContractClient::new(&env, &env.register(StreamContract, ()));
     c.create(&sender, &recipient, &token, &RATE, &START, &STOP, &true);
 
@@ -580,14 +568,11 @@ fn top_up_rejects_a_span_that_overflows_the_stop_timestamp() {
     // so extending `stop` by it could not even be represented. The contract
     // must reject rather than silently truncate the seconds (which would
     // break the funding invariant).
-    let env = Env::default();
-    env.mock_all_auths();
-    env.ledger().with_mut(|l| l.timestamp = START);
-    let sender = Address::generate(&env);
-    let recipient = Address::generate(&env);
-    let issuer = Address::generate(&env);
-    let token = env.register_stellar_asset_contract_v2(issuer).address();
-    StellarAssetClient::new(&env, &token).mint(&sender, &i128::MAX);
+    let te = TestEnv::at(START);
+    let (token_client, sender) = te.make_token(i128::MAX);
+    let token = token_client.address.clone();
+    let recipient = te.make_address();
+    let env = te.env;
     let c = StreamContractClient::new(&env, &env.register(StreamContract, ()));
     c.create(&sender, &recipient, &token, &1, &START, &(START + 1), &true);
 

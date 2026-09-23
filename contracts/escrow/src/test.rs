@@ -4,10 +4,10 @@
 
 use soroban_sdk::{
     testutils::{Address as _, Events as _, Ledger as _},
-    token::{StellarAssetClient, TokenClient},
+    token::TokenClient,
     Address, Env, Event,
 };
-use sororail_common::Error;
+use sororail_common::{testutils::TestEnv, Error};
 
 use crate::{
     contract::{EscrowContract, EscrowContractClient},
@@ -33,19 +33,13 @@ impl Fixture<'_> {
     /// Builds an initialized escrow. `with_arbiter` controls whether the
     /// dispute path is available.
     fn new(with_arbiter: bool) -> Self {
-        let env = Env::default();
-        env.mock_all_auths();
-        env.ledger().with_mut(|l| l.timestamp = START_TS);
-
-        let depositor = Address::generate(&env);
-        let beneficiary = Address::generate(&env);
-        let arbiter = Address::generate(&env);
-        let outsider = Address::generate(&env);
-
-        let issuer = Address::generate(&env);
-        let sac = env.register_stellar_asset_contract_v2(issuer);
-        let token_address = sac.address();
-        StellarAssetClient::new(&env, &token_address).mint(&depositor, &(AMOUNT * 10));
+        let te = TestEnv::at(START_TS);
+        let (token, depositor) = te.make_token(AMOUNT * 10);
+        let token_address = token.address.clone();
+        let beneficiary = te.make_address();
+        let arbiter = te.make_address();
+        let outsider = te.make_address();
+        let env = te.env;
 
         let contract_id = env.register(EscrowContract, ());
         let client = EscrowContractClient::new(&env, &contract_id);
