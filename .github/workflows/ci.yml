@@ -5,9 +5,10 @@ on:
     branches: [main]
   pull_request:
 
+# Lint policy (deny warnings, checked arithmetic) lives in [workspace.lints]
+# in Cargo.toml, not in RUSTFLAGS, so local `cargo clippy` matches CI.
 env:
   CARGO_TERM_COLOR: always
-  RUSTFLAGS: -D warnings
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -44,7 +45,7 @@ jobs:
       - uses: taiki-e/install-action@nextest
 
       - run: cargo fmt --all -- --check
-      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo clippy --workspace --all-targets
       - run: cargo nextest run --workspace
 
   build:
@@ -63,6 +64,31 @@ jobs:
         with:
           name: wasm
           path: target/wasm32v1-none/release/*.wasm
+      # Rust tests never load the contract spec, so a broken one (e.g. the
+      # `Payments` alias in DEPLOYMENTS.md) passes everything above. `make
+      # specs` generates each interface and fails if it does not parse or
+      # references an undefined type. Action tag == CLI version; keep in step
+      # with DEPLOYMENTS.md.
+      - uses: stellar/stellar-cli@v27.1.0
+      - run: make specs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: specs
+          path: dist/specs/*.json
+
+  msrv:
+    name: msrv (1.91)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          # Must equal rust-version in Cargo.toml.
+          toolchain: "1.91"
+          targets: wasm32v1-none
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check --workspace --all-targets --locked
+      - run: cargo check --workspace --exclude sororail-integration-tests --target wasm32v1-none --locked
 
   coverage:
     name: coverage (>=90%)

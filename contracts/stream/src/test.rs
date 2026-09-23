@@ -1,7 +1,12 @@
+// Test fixtures do plain arithmetic on known-small constants; the checked-math
+// rule is for contract code.
+#![allow(clippy::arithmetic_side_effects)]
+
 use soroban_sdk::{
-    testutils::{Address as _, Ledger as _},
+    map,
+    testutils::{Address as _, Events as _, Ledger as _},
     token::{StellarAssetClient, TokenClient},
-    Address, Env,
+    vec, Address, Env, IntoVal, Symbol, Val,
 };
 use sororail_common::Error;
 
@@ -511,6 +516,44 @@ fn top_up_extends_the_stop_by_the_span_it_buys() {
     assert_eq!(s.deposited, DEPOSITED + RATE * 500);
     assert_eq!(f.held(), DEPOSITED + RATE * 500);
     f.assert_conserved();
+}
+
+/// Pins the wire shape indexers decode (SPEC.md `indexed_events`). The
+/// expected value is spelled out literally rather than built from
+/// `events::ToppedUp`, so renaming a topic or a field fails here.
+#[test]
+fn top_up_emits_the_topped_up_event() {
+    let f = Fixture::new(true);
+    f.client.top_up(&(RATE * 500));
+
+    let env = &f.env;
+    let amount: Val = (RATE * 500).into_val(env);
+    let deposited: Val = (DEPOSITED + RATE * 500).into_val(env);
+    let new_stop: Val = (STOP + 500).into_val(env);
+    // Map data: keys are the field names, serialized in sorted order.
+    let data: Val = map![
+        env,
+        (Symbol::new(env, "amount"), amount),
+        (Symbol::new(env, "deposited"), deposited),
+        (Symbol::new(env, "new_stop"), new_stop),
+    ]
+    .into_val(env);
+    assert_eq!(
+        env.events().all().filter_by_contract(&f.client.address),
+        vec![
+            env,
+            (
+                f.client.address.clone(),
+                vec![
+                    env,
+                    Symbol::new(env, "stream").into_val(env),
+                    Symbol::new(env, "topped_up").into_val(env),
+                    f.sender.into_val(env),
+                ],
+                data,
+            ),
+        ]
+    );
 }
 
 #[test]

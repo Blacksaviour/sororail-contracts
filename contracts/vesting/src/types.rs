@@ -72,7 +72,7 @@ impl Grant {
 
         // Linear in between. `duration` is non-zero because `end > effective
         // >= cliff_at >= start` implies `end > start`.
-        let elapsed = (effective - self.start) as i128;
+        let elapsed = math::sub(effective as i128, self.start as i128)?;
         math::mul_div(self.total, elapsed, self.duration as i128)
     }
 
