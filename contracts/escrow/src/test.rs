@@ -1,12 +1,13 @@
 use soroban_sdk::{
-    testutils::{Address as _, Ledger as _},
+    testutils::{Address as _, Events as _, Ledger as _},
     token::{StellarAssetClient, TokenClient},
-    Address, Env,
+    Address, Env, Event,
 };
 use sororail_common::Error;
 
 use crate::{
     contract::{EscrowContract, EscrowContractClient},
+    events,
     types::State,
 };
 
@@ -270,6 +271,37 @@ fn release_rejects_a_closed_escrow() {
     );
 }
 
+#[test]
+fn release_emits_the_released_event_topics_and_fields() {
+    // Released by the depositor.
+    let f = Fixture::funded(true);
+    f.client.release(&f.depositor);
+
+    assert_eq!(
+        f.env.events().all().filter_by_contract(&f.client.address),
+        std::vec![events::Released {
+            beneficiary: f.beneficiary.clone(),
+            amount: AMOUNT,
+            released_by: f.depositor.clone(),
+        }
+        .to_xdr(&f.env, &f.client.address)]
+    );
+
+    // Released by the arbiter: same topics and data, different `released_by`.
+    let g = Fixture::funded(true);
+    g.client.release(&g.arbiter);
+
+    assert_eq!(
+        g.env.events().all().filter_by_contract(&g.client.address),
+        std::vec![events::Released {
+            beneficiary: g.beneficiary.clone(),
+            amount: AMOUNT,
+            released_by: g.arbiter.clone(),
+        }
+        .to_xdr(&g.env, &g.client.address)]
+    );
+}
+
 // ---------------------------------------------------------------- refund
 
 #[test]
@@ -324,6 +356,38 @@ fn refund_at_exactly_the_deadline_is_allowed() {
     f.env.ledger().with_mut(|l| l.timestamp = DEADLINE);
     f.client.refund(&f.depositor);
     assert_eq!(f.client.state(), State::Refunded);
+}
+
+#[test]
+fn refund_emits_the_refunded_event_topics_and_fields() {
+    // Refunded by the depositor after the deadline.
+    let f = Fixture::funded(true);
+    f.advance_past_deadline();
+    f.client.refund(&f.depositor);
+
+    assert_eq!(
+        f.env.events().all().filter_by_contract(&f.client.address),
+        std::vec![events::Refunded {
+            depositor: f.depositor.clone(),
+            amount: AMOUNT,
+            refunded_by: f.depositor.clone(),
+        }
+        .to_xdr(&f.env, &f.client.address)]
+    );
+
+    // Refunded by the arbiter: same topics and data, different `refunded_by`.
+    let g = Fixture::funded(true);
+    g.client.refund(&g.arbiter);
+
+    assert_eq!(
+        g.env.events().all().filter_by_contract(&g.client.address),
+        std::vec![events::Refunded {
+            depositor: g.depositor.clone(),
+            amount: AMOUNT,
+            refunded_by: g.arbiter.clone(),
+        }
+        .to_xdr(&g.env, &g.client.address)]
+    );
 }
 
 // --------------------------------------------------------------- dispute

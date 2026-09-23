@@ -235,6 +235,44 @@ fn create_rejects_funding_that_overflows() {
 }
 
 #[test]
+fn create_allows_the_exact_max_funding_boundary() {
+    // `rate_per_second * (stop - start) == i128::MAX` is the largest a stream
+    // can be funded: it must succeed. `i128::MAX` is prime (Mersenne prime
+    // M127), so the only single-second-span way to land exactly on it is
+    // `rate = i128::MAX`, `duration = 1`; one more second overflows (asserted
+    // just above, in `create_rejects_funding_that_overflows`).
+    let env = Env::default();
+    env.mock_all_auths();
+    env.ledger().with_mut(|l| l.timestamp = START);
+    let sender = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    let issuer = Address::generate(&env);
+    let token = env.register_stellar_asset_contract_v2(issuer).address();
+    StellarAssetClient::new(&env, &token).mint(&sender, &i128::MAX);
+    let c = StreamContractClient::new(&env, &env.register(StreamContract, ()));
+    let token_client = TokenClient::new(&env, &token);
+
+    c.create(
+        &sender,
+        &recipient,
+        &token,
+        &i128::MAX,
+        &START,
+        &(START + 1),
+        &true,
+    );
+
+    let s = c.get();
+    assert_eq!(s.rate_per_second, i128::MAX);
+    assert_eq!(s.stop - s.start, 1);
+    assert_eq!(s.deposited, i128::MAX);
+    assert_eq!(s.withdrawn, 0);
+    assert_eq!(c.remaining(), i128::MAX);
+    assert_eq!(token_client.balance(&c.address), i128::MAX);
+    assert_eq!(token_client.balance(&sender), 0);
+}
+
+#[test]
 fn create_rejects_a_second_call() {
     let f = Fixture::new(true);
     assert_eq!(
@@ -490,6 +528,35 @@ fn top_up_rejects_non_positive_amounts() {
     let f = Fixture::new(true);
     assert_eq!(f.client.try_top_up(&0), Err(Ok(Error::InvalidAmount)));
     assert_eq!(f.client.try_top_up(&(-RATE)), Err(Ok(Error::InvalidAmount)));
+}
+
+#[test]
+fn top_up_rejects_a_span_that_overflows_the_stop_timestamp() {
+    // rate = 1, duration = 1 keeps `deposited` tiny, so this isolates the
+    // `amount / rate` -> u64 conversion: `2^64` seconds is beyond `u64::MAX`,
+    // so extending `stop` by it could not even be represented. The contract
+    // must reject rather than silently truncate the seconds (which would
+    // break the funding invariant).
+    let env = Env::default();
+    env.mock_all_auths();
+    env.ledger().with_mut(|l| l.timestamp = START);
+    let sender = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    let issuer = Address::generate(&env);
+    let token = env.register_stellar_asset_contract_v2(issuer).address();
+    StellarAssetClient::new(&env, &token).mint(&sender, &i128::MAX);
+    let c = StreamContractClient::new(&env, &env.register(StreamContract, ()));
+    c.create(&sender, &recipient, &token, &1, &START, &(START + 1), &true);
+
+    assert_eq!(
+        c.try_top_up(&(1_i128 << 64)),
+        Err(Ok(Error::InvalidTimeRange))
+    );
+
+    // The failed call changed nothing.
+    let s = c.get();
+    assert_eq!(s.stop, START + 1);
+    assert_eq!(s.deposited, 1);
 }
 
 #[test]

@@ -151,7 +151,8 @@ impl StreamContract {
             return Err(Error::InvalidAmount);
         }
 
-        let seconds = math::div(amount, stream.rate_per_second)? as u64;
+        let seconds = u64::try_from(math::div(amount, stream.rate_per_second)?)
+            .map_err(|_| Error::InvalidTimeRange)?;
         stream.stop = stream
             .stop
             .checked_add(seconds)
