@@ -1,3 +1,7 @@
+// Test fixtures do plain arithmetic on known-small constants; the checked-math
+// rule is for contract code.
+#![allow(clippy::arithmetic_side_effects)]
+
 use soroban_sdk::{
     testutils::{Address as _, Ledger as _},
     token::{StellarAssetClient, TokenClient},

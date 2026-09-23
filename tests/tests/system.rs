@@ -11,6 +11,8 @@
 //! test ends by summing every balance — every party and every contract
 //! address — and asserting it equals what was minted.
 
+#![allow(clippy::arithmetic_side_effects)]
+
 use soroban_sdk::{
     testutils::{Address as _, Ledger as _},
     token::{StellarAssetClient, TokenClient},

@@ -20,3 +20,6 @@ sororail-stream = { path = "../contracts/stream" }
 sororail-vesting = { path = "../contracts/vesting" }
 sororail-recurring = { path = "../contracts/recurring" }
 sororail-batch-payout = { path = "../contracts/batch_payout" }
+
+[lints]
+workspace = true

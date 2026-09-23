@@ -34,7 +34,7 @@ impl StreamContract {
         if stop <= start {
             return Err(Error::InvalidTimeRange);
         }
-        let deposited = math::mul(rate_per_second, (stop - start) as i128)?;
+        let deposited = math::mul(rate_per_second, math::sub(stop as i128, start as i128)?)?;
 
         sender.require_auth();
 
@@ -147,7 +147,7 @@ impl StreamContract {
         }
         stream.sender.require_auth();
         math::require_positive(amount)?;
-        if amount % stream.rate_per_second != 0 {
+        if amount.checked_rem(stream.rate_per_second) != Some(0) {
             return Err(Error::InvalidAmount);
         }
 
@@ -182,7 +182,10 @@ impl StreamContract {
             return Err(Error::StreamNotExtendable);
         }
 
-        let added = math::mul(stream.rate_per_second, (new_stop - stream.stop) as i128)?;
+        let added = math::mul(
+            stream.rate_per_second,
+            math::sub(new_stop as i128, stream.stop as i128)?,
+        )?;
         stream.stop = new_stop;
         stream.deposited = math::add(stream.deposited, added)?;
         storage::save(&env, &stream);
