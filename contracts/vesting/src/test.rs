@@ -309,6 +309,27 @@ fn claim_is_blocked_before_the_cliff() {
 }
 
 #[test]
+fn claim_exactly_at_and_one_second_before_cliff() {
+    let env = Env::default();
+    let g = bare(&env, CLIFF, DURATION);
+    // One second before cliff_at(): nothing vested yet.
+    assert_eq!(g.claimable_at(START + CLIFF - 1), Ok(0));
+    // Exactly at cliff_at(): cliff vests its proportion in one step.
+    assert_eq!(g.claimable_at(START + CLIFF), Ok(TOTAL / 10));
+}
+
+#[test]
+fn claim_fails_one_second_before_cliff_but_succeeds_at_cliff() {
+    let f = Fixture::new(true);
+    f.at(START + CLIFF - 1);
+    assert_eq!(f.client.try_claim(), Err(Ok(Error::VestingCliffNotReached)));
+    f.at(START + CLIFF);
+    assert_eq!(f.client.claim(), TOTAL / 10);
+    assert_eq!(f.token.balance(&f.beneficiary), TOTAL / 10);
+    f.assert_conserved();
+}
+
+#[test]
 fn claim_pays_the_vested_portion() {
     let f = Fixture::new(true);
     f.at(START + 500);
@@ -408,6 +429,20 @@ fn revoke_before_the_cliff_returns_everything() {
     assert_eq!(f.token.balance(&f.grantor), grantor_before + TOTAL);
     assert_eq!(f.held(), 0);
     // Nothing ever vested, so there is nothing to claim.
+    assert_eq!(f.client.try_claim(), Err(Ok(Error::VestingCliffNotReached)));
+    f.assert_conserved();
+}
+
+#[test]
+fn revoke_before_the_cliff_then_advance_time_and_claim() {
+    let f = Fixture::new(true);
+    // Revoke before the cliff.
+    f.client.revoke();
+    // Advance time past the cliff -- but revoked_at freezes effective time.
+    f.at(START + CLIFF + 1_000);
+    // After revocation before the cliff, claim still reports CliffNotReached
+    // because effective time is frozen at revoked_at (before the cliff).
+    // Nothing was ever vested, so nothing is claimable.
     assert_eq!(f.client.try_claim(), Err(Ok(Error::VestingCliffNotReached)));
     f.assert_conserved();
 }

@@ -329,6 +329,17 @@ fn withdraw_rejects_when_nothing_has_accrued() {
 }
 
 #[test]
+fn withdraw_some_zero_distinctly_from_none_with_zero_accrued() {
+    let f = Fixture::new(true);
+    // Explicit Some(0) flows through unwrap_or untouched into require_positive.
+    // Both None and Some(0) should fail with InvalidAmount when nothing accrued.
+    let none_result = f.client.try_withdraw(&None);
+    let some_zero_result = f.client.try_withdraw(&Some(0));
+    assert_eq!(none_result, Err(Ok(Error::InvalidAmount)));
+    assert_eq!(some_zero_result, Err(Ok(Error::InvalidAmount)));
+}
+
+#[test]
 fn withdrawing_the_whole_stream_after_stop_empties_the_contract() {
     let f = Fixture::new(true);
     f.at(STOP + 10_000);
