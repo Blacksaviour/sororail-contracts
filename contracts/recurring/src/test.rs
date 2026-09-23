@@ -295,7 +295,8 @@ fn charge_fails_when_allowance_covers_fewer_periods_than_remain() {
     let f = Fixture::new(None);
     let expiry = f.env.ledger().sequence() + 100_000;
     let two_periods = AMOUNT * 2;
-    f.token.approve(&f.payer, &f.client.address, &two_periods, &expiry);
+    f.token
+        .approve(&f.payer, &f.client.address, &two_periods, &expiry);
 
     // First charge: succeeds.
     f.at(START + PERIOD);
