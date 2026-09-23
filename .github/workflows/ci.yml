@@ -64,6 +64,17 @@ jobs:
         with:
           name: wasm
           path: target/wasm32v1-none/release/*.wasm
+      # Rust tests never load the contract spec, so a broken one (e.g. the
+      # `Payments` alias in DEPLOYMENTS.md) passes everything above. `make
+      # specs` generates each interface and fails if it does not parse or
+      # references an undefined type. Action tag == CLI version; keep in step
+      # with DEPLOYMENTS.md.
+      - uses: stellar/stellar-cli@v27.1.0
+      - run: make specs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: specs
+          path: dist/specs/*.json
 
   coverage:
     name: coverage (>=90%)

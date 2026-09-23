@@ -35,12 +35,25 @@ optimize: build
 		stellar contract optimize --wasm $(WASM_DIR)/sororail_$$c.wasm || exit 1; \
 	done
 
-# Contract specs as JSON, attached to the GitHub Release.
+# Contract specs as JSON, attached to the GitHub Release. Requires `stellar`
+# and `jq`.
+#
+# Emitting a spec is not enough: a spec can reference a user-defined type it
+# never defines (the `Payments` alias in DEPLOYMENTS.md), and `stellar
+# contract info` prints it without complaint while every client that loads it
+# fails with `Missing Entry`. So each spec must parse as JSON and every `udt`
+# it references must be defined in it.
+SPEC_CHECK := ([.[] | to_entries[] | select(.key | startswith("udt_")) | .value.name]) as $$defined \
+	| ([.. | objects | select(has("udt")) | .udt.name] | unique) - $$defined \
+	| if length > 0 then error("references undefined types: \(join(", "))") else true end
+
 specs: build
 	@mkdir -p dist/specs
 	@for c in $(CONTRACTS); do \
 		stellar contract info interface --output json \
 			--wasm $(WASM_DIR)/sororail_$$c.wasm > dist/specs/$$c.json || exit 1; \
+		jq -e '$(SPEC_CHECK)' dist/specs/$$c.json > /dev/null \
+			|| { echo "invalid spec: $$c"; exit 1; }; \
 	done
 	@echo "specs written to dist/specs/"
 
